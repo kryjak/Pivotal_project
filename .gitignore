@@ -1,0 +1,4 @@
+*.pyc
+*.csv
+*.jpg
+.vscode/settings.json
