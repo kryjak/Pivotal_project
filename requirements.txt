@@ -1,0 +1,12 @@
+jupyter
+ipykernel
+pandas
+openai
+anthropic
+attrdict
+transformers
+wandb
+einops
+torch
+pillow
+torchvision
