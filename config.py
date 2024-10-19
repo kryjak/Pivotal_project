@@ -1,9 +1,9 @@
 import os
 import torch as t
-from types import SimpleNamespace
+from utils import DotDict
 
 DEVICE = t.device("cuda" if t.cuda.is_available() else "cpu")
-PATH_TO_REPOS = '/home/jkrys/gitrepos' # path to the directory containing the git repositories
+PATH_TO_REPOS = os.path.split(os.getcwd())[0] # path to the directory containing the git repositories
 PATH_TO_DATASETS = os.path.join(os.getcwd(), 'data_storage', 'datasets')
 
 # Allowed models: 'DeepSeek-VL', 'LLaVa'
@@ -15,8 +15,7 @@ WANDB_KEY = os.getenv('WANDB_KEY')
 
 HF_TOKEN = os.getenv('HF_TOKEN')
 
-# Replace AttrDict with SimpleNamespace
-attack_config_DeepSeek = SimpleNamespace(
+attack_config_DeepSeek = DotDict(
     model_name = 'DeepSeek',
     n_epochs = 250,
     n_logs = 20,
@@ -28,7 +27,7 @@ attack_config_DeepSeek = SimpleNamespace(
     weight_decay=1e-2
 )
 
-attack_config_Llava = SimpleNamespace(
+attack_config_Llava = DotDict(
     model_name = 'LLaVa',
     n_epochs = 250,
     n_logs = 20,
@@ -40,12 +39,12 @@ attack_config_Llava = SimpleNamespace(
     weight_decay=1e-2
 )
 
-wandb_config = SimpleNamespace(
+wandb_config = DotDict(
     wandb_project = WANDB_PROJECT,
     wandb_name = WANDB_NAME
 )
 
-jailbreak_config = SimpleNamespace(
+jailbreak_config = DotDict(
     model_name = 'DeepSeek',
     n_epochs = 20,
     n_logs = 10,

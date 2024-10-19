@@ -104,3 +104,16 @@ def load_data_from_wandb(wandb_run_name: str) -> None:
             globals()[tensor_name] = None
 
     print(f'Loaded data from wandb run {wandb_run_name}')
+
+class DotDict(dict):
+    """A dictionary that supports dot notation as well as dictionary access notation"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __add__(self, other):
+        if isinstance(other, dict):
+            new = DotDict(self)
+            new.update(other)
+            return new
+        return NotImplemented
