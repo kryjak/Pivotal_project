@@ -5,28 +5,40 @@ from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
 from transformers import BitsAndBytesConfig
 import subprocess
 from config import PATH_TO_REPOS, DEVICE, MODEL
+import sys
 
 def clone_deepseek_repo(model_id='DeepSeek-VL') -> None:
+    # Assuming your current working directory is 'gitrepos/Pivotal_project'
     path_to_model = os.path.join(PATH_TO_REPOS, model_id)
 
     if not os.path.exists(path_to_model):
         print(f'Cloning {model_id} repo to {path_to_model}')
         os.chdir(PATH_TO_REPOS)
         subprocess.run(["git", "clone", "https://github.com/deepseek-ai/DeepSeek-VL"], check=True)
-        os.chdir(path_to_model)
     else:
-        print(f'Repo {model_id} already exists at {path_to_model}')
-        os.chdir(path_to_model)
-        subprocess.run(["pip", "install", "-q", "-e", "."], check=True)
+        print(f'Repo for {model_id} already exists at {path_to_model}')
 
+    # Change to the DeepSeek-VL directory and install it
+    os.chdir(path_to_model)
+    subprocess.run(["pip", "install", "-e", "."], check=True)
+
+    # Add DeepSeek-VL to Python path
+    if path_to_model not in sys.path:
+        sys.path.append(path_to_model)
+
+    # Change back to the Pivotal_project directory
+    os.chdir(os.path.join(PATH_TO_REPOS, 'Pivotal_project'))
+
+    print(f'DeepSeek-VL installed in editable mode at {path_to_model}')
     print(f'Current working directory: {os.getcwd()}')
+    print(f'Python path updated to include: {path_to_model}')
 
 
 def load_model(model_name):
     # specify the path to the model
-    if model_name == 'DeepSeek_VL':
+    if model_name == 'DeepSeek-VL':
         clone_deepseek_repo()
-        from deepseek_vl.models import VLChatProcessor, MultiModalityCausalLM
+        from deepseek_vl.models import VLChatProcessor
         
         model_path = "deepseek-ai/deepseek-vl-1.3b-chat"
         model = AutoModelForCausalLM.from_pretrained(
