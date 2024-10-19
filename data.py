@@ -1,8 +1,7 @@
 from torch.utils.data import Dataset
-from typing import List, Optional
-from PIL import Image
 import torch as t
-from typing import Union
+from typing import Union, List
+
 class VLMJailbreakDataset(Dataset):
     def __init__(self, prompts: List, images: Union[List[t.Tensor], None], targets: List[List[str]]):
         self.prompts = prompts

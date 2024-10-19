@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from config import PATH_TO_DATASETS
 
 """
 Create a smaller version of the AdvBench dataset for testing purposes.
@@ -19,9 +20,8 @@ df_train = df_mini.sample(frac=0.8, random_state=42)
 df_test = df_mini.drop(df_train.index)
 
 # Create a directory if it doesn't exist:
-path_to_folder = 'data_storage'
-os.makedirs(path_to_folder, exist_ok=True)
+os.makedirs(PATH_TO_DATASETS, exist_ok=True)
 
-df_train.to_csv(os.path.join(path_to_folder, 'advbench_mini_train.csv'), index=True)
-df_test.to_csv(os.path.join(path_to_folder, 'advbench_mini_test.csv'), index=True)
+df_train.to_csv(os.path.join(PATH_TO_DATASETS, 'advbench_mini_train.csv'), index=True)
+df_test.to_csv(os.path.join(PATH_TO_DATASETS, 'advbench_mini_test.csv'), index=True)
 print('Finished generating AdvBench mini and saving to a file.')
