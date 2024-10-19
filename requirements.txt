@@ -10,3 +10,5 @@ einops
 torch
 pillow
 torchvision
+matplotlip
+timm
