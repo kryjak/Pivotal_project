@@ -6,7 +6,7 @@ from PIL import Image
 from torchvision import transforms
 import torch as t
 import wandb
-from config import DEVICE
+from config import DEVICE, PATH_TO_TENSORS
 from torch.utils.data import DataLoader
 from data import VLMJailbreakDataset, custom_collate_fn
 from custom_image_transforms import CustomTransforms
@@ -25,8 +25,7 @@ class ControlSingleTokenAttack():
         print(f'Current run path: {run_path}')
 
         # Create directory for saving tensors
-        self.path_to_tensors = 'data_storage/tensors'
-        os.makedirs(self.path_to_tensors, exist_ok=True)
+        os.makedirs(PATH_TO_TENSORS, exist_ok=True)
 
     def train_attack(self,
                      prompt: Union[str, List[str]],
@@ -54,7 +53,7 @@ class ControlSingleTokenAttack():
             # should I normalise the perturbed image?
             perturbed_init_image = (init_image + eps * delta.clamp(-1, 1)).clamp(0, 1).to(self.device) * 255.0 # this will be a t.Tensor, not a PIL.Image.Image, but the range is [0.0, 255.0]
 
-            output = self.base.generate_token_grad(prompt, perturbed_init_image, do_sample=False, num_beams=1)
+            output = self.base.generate_token_grad(prompt, perturbed_init_image)
             logits = output.logits # [batch, sequence_position, vocab]
             next_token_logits = logits[:, -1] # [batch, vocab]
             next_token_pred = self.base.tokenizer.batch_decode(next_token_logits.argmax(-1), skip_special_tokens=True)
@@ -82,8 +81,8 @@ class ControlSingleTokenAttack():
 
         # Save tensors
         for tensor_name in ['init_image', 'delta']:
-            t.save(eval(tensor_name), os.path.join(self.path_to_tensors, f'{tensor_name}.pt'))
-            wandb.save(os.path.join(self.path_to_tensors, f'{tensor_name}.pt'), base_path='data_storage')
+            t.save(eval(tensor_name), os.path.join(PATH_TO_TENSORS, f'{tensor_name}.pt'))
+            wandb.save(os.path.join(PATH_TO_TENSORS, f'{tensor_name}.pt'), base_path='data_storage')
 
         return init_image, delta, loss_train
 
@@ -127,14 +126,13 @@ class ControlSingleTokenAttack():
         wandb.finish()
 
 
-class ControlMultipleTokensAttack():
-    def __init__(self, base_instance, cfg, model, wandb_run_id: Optional[str] = None, wandb_name: Optional[str] = None) -> None:
+class ControlMultipleTokensAttack:
+    def __init__(self, base_instance, cfg, wandb_run_id: Optional[str] = None, wandb_name: Optional[str] = None) -> None:
         # if a wandb_entity is provided, a previous run will be used instead of starting a new one
         # this is useful e.g. when we want to load a previously obtained perturbation
         # and carry out/evaluate attacks using it
         self.base = base_instance
         self.cfg = cfg
-        self.model = model
         self.wandb_name = wandb_name or self.cfg.wandb_name
         self.wandb_run_id = wandb_run_id
         self.device = DEVICE
@@ -217,12 +215,11 @@ class ControlMultipleTokensAttack():
             raise NotImplementedError(f"Method {training_method} not implemented. Use 'autoregressive' or 'teacher_forcing'")
 
     def _save_tensors(self, init_image: Optional[t.Tensor], delta: t.Tensor) -> None:
-        path_to_tensors = 'data_storage/tensors'
-        os.makedirs(path_to_tensors, exist_ok=True)
+        os.makedirs(PATH_TO_TENSORS, exist_ok=True)
         for tensor_name, tensor in [('init_image', init_image), ('delta', delta)]:
             if tensor is not None:
-                t.save(tensor, os.path.join(path_to_tensors, f'{tensor_name}.pt'))
-                wandb.save(os.path.join(path_to_tensors, f'{tensor_name}.pt'), base_path='data_storage')
+                t.save(tensor, os.path.join(PATH_TO_TENSORS, f'{tensor_name}.pt'))
+                wandb.save(os.path.join(PATH_TO_TENSORS, f'{tensor_name}.pt'), base_path='data_storage')
 
     def train_attack(self,
                      prompt: Union[str, List[str]],
@@ -252,7 +249,6 @@ class ControlMultipleTokensAttack():
                                                                             perturbed_image=perturbed_image,
                                                                             target=target,
                                                                             training_method=training_method,
-                                                                            step=step,
                                                                             use_cache=use_cache)
             loss.backward()
             loss_train.append(loss.item())
@@ -321,8 +317,8 @@ class ControlMultipleTokensAttack():
 
 
 class JailbreakAttack(ControlMultipleTokensAttack):
-    def __init__(self, base_instance, cfg, model, wandb_run_id: Optional[str] = None, wandb_name: Optional[str] = None) -> None:
-        super().__init__(base_instance, cfg, model, wandb_run_id, wandb_name)
+    def __init__(self, base_instance, cfg, wandb_run_id: Optional[str] = None, wandb_name: Optional[str] = None) -> None:
+        super().__init__(base_instance, cfg, wandb_run_id, wandb_name)
 
     # overwrites the method from ControlMultipleTokensAttack
     def _initialize_delta(self, images: Optional[List[Image.Image]]) -> Tuple[Optional[List[t.Tensor]], t.Tensor]:
@@ -349,11 +345,10 @@ class JailbreakAttack(ControlMultipleTokensAttack):
 
     # overwrites the method from ControlMultipleTokensAttack
     def _save_tensors(self, delta: t.Tensor) -> None:
-        path_to_tensors = 'data_storage/tensors'
-        os.makedirs(path_to_tensors, exist_ok=True)
+        os.makedirs(PATH_TO_TENSORS, exist_ok=True)
         for tensor_name, tensor in [('delta', delta)]:
-            t.save(tensor, os.path.join(path_to_tensors, f'{tensor_name}.pt'))
-            wandb.save(os.path.join(path_to_tensors, f'{tensor_name}.pt'), base_path='data_storage')
+            t.save(tensor, os.path.join(PATH_TO_TENSORS, f'{tensor_name}.pt'))
+            wandb.save(os.path.join(PATH_TO_TENSORS, f'{tensor_name}.pt'), base_path='data_storage')
 
     def _assertions(self, prompts: List[str], images: Optional[List[Image.Image]], targets: Optional[Union[List[List[str]], List[str]]], batch_size: int) -> None:
         assert batch_size <= len(prompts), "Batch size cannot be larger than the number of prompts."
