@@ -3,12 +3,11 @@ ipykernel
 pandas
 openai
 anthropic
-attrdict
 transformers
 wandb
 einops
-torch
+torch @ https://download.pytorch.org/whl/cu121_full/torch-2.4.1%2Bcu121-cp310-cp310-linux_x86_64.whl
+torchvision @ https://download.pytorch.org/whl/cu121_full/torchvision-0.19.1%2Bcu121-cp310-cp310-linux_x86_64.whl
 pillow
-torchvision
-matplotlip
+matplotlib
 timm
