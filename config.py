@@ -11,7 +11,7 @@ MODEL = 'DeepSeek-VL'
 
 WANDB_PROJECT = "pivotal_adv_attacks"
 WANDB_NAME = None
-WANDB_KEY = os.getenv('WANDB_KEY')
+WANDB_KEY = os.getenv('WANDB_API_KEY')
 
 HF_TOKEN = os.getenv('HF_TOKEN')
 
