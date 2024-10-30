@@ -11,8 +11,7 @@ import einops
 
 
 class LlavaBaseClass:
-    def __init__(self, cfg, model, processor) -> None:
-        self.cfg = cfg
+    def __init__(self, model, processor) -> None:
         self.model = model
         self.processor = processor
         self.device = DEVICE
@@ -234,8 +233,7 @@ class LlavaBaseClass:
 
 
 class DeepSeekVLBaseClass:
-    def __init__(self, cfg, model, processor) -> None:
-        self.cfg = cfg
+    def __init__(self, model, processor) -> None:
         self.model = model
         self.processor = processor
         self.device = DEVICE
@@ -259,6 +257,12 @@ class DeepSeekVLBaseClass:
         self.system_prompt_embedded = self.embedder(self.system_prompt_tokenized)
         self.user_embedded = self.embedder(self.user_tokenized)
         self.assistant_embedded = self.embedder(self.assistant_tokenized)
+
+        try:
+            from deepseek_vl.utils.io import load_pil_images
+            self.load_pil_images = load_pil_images
+        except ImportError as e:
+            print(f"Warning: Could not import DeepSeek utilities: {e}")
 
     # Define model-specific methods
     def generate_autoregressive_with_pil(self, prompt: str, image: Image.Image, max_new_tokens: Optional[int] = 1, no_eos_token: Optional[bool] = False, use_cache: Optional[bool] = False, **kwargs):
@@ -284,7 +288,7 @@ class DeepSeekVLBaseClass:
            ]
 
            # we had a PIL image to begin with, but conversation only accepts paths or base64
-           pil_image = load_pil_images(conversation)
+           pil_image = self.load_pil_images(conversation)
 
            prepare_inputs = self.processor(
                conversations=conversation,
