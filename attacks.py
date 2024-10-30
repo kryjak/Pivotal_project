@@ -388,7 +388,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         n_batches = len(dataloader)
         print(f'Number of batches: {n_batches}')
 
-        if augmentations != None:
+        if augmentations is not None:
             transforms = CustomTransforms(**augmentations)
 
         assert (self.cfg.n_epochs * n_batches) > self.cfg.n_logs, 'For JailbreakAttack, n_epochs*n_batches must be greater than n_logs.'
