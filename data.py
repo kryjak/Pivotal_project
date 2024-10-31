@@ -2,8 +2,14 @@ from torch.utils.data import Dataset
 import torch as t
 from typing import Union, List
 
+
 class VLMJailbreakDataset(Dataset):
-    def __init__(self, prompts: List, images: Union[List[t.Tensor], None], targets: List[List[str]]):
+    def __init__(
+        self,
+        prompts: List,
+        images: Union[List[t.Tensor], None],
+        targets: List[List[str]],
+    ):
         self.prompts = prompts
         self.images = images
         self.targets = targets
@@ -18,6 +24,7 @@ class VLMJailbreakDataset(Dataset):
         target = self.targets[idx]
         return prompt, image, target
 
+
 def custom_collate_fn(batch):
     prompts, images, targets = zip(*batch)
 
@@ -25,6 +32,7 @@ def custom_collate_fn(batch):
     images = t.stack(images) if images[0] is not None else None
 
     return list(prompts), images, list(targets)
+
 
 ### USAGE ###
 # dataset = VLMJailbreakDataset(prompts=prompts, images=init_images, targets=targets)
