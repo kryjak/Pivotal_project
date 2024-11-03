@@ -41,7 +41,7 @@ class ControlSingleTokenAttack:
             target = self.cfg.single_token_target[0]
 
         init_image = transforms.ToTensor()(image).to(t.bfloat16).to(self.device)
-        delta = 0.5*t.ones_like(
+        delta = t.zeros_like(
             init_image, dtype=t.bfloat16, requires_grad=True, device=self.device
         )
 
@@ -224,7 +224,7 @@ class ControlMultipleTokensAttack:
     ) -> Tuple[Optional[t.Tensor], t.Tensor]:
         if isinstance(image, Image.Image):
             init_image = transforms.ToTensor()(image).to(t.bfloat16).to(self.device)
-            delta = 0.5*t.ones_like(
+            delta = t.zeros_like(
                 init_image, dtype=t.bfloat16, requires_grad=True, device=self.device
             )
         elif image is None:
@@ -490,7 +490,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                 for img in images
             ]
             if len(set([x.shape for x in init_images])) == 1:
-                delta = 0.5*t.ones_like(
+                delta = t.zeros_like(
                     init_images[0],
                     dtype=t.bfloat16,
                     requires_grad=True,
