@@ -153,8 +153,8 @@ class LlavaBaseClass:
         Embeds the image tensor into the embedding space.
         """
         assert (
-            isinstance(image, t.Tensor) and image.ndim == 3
-        ), "Tensor image must be 3D"
+            isinstance(image, t.Tensor) and image.ndim == 4
+        ), "Tensor image must be 4D: [patch, C, H, W]"
         # we will only work with images <336x336, so the number of patches is 3
         # this needs to be supplied as a list
         image_num_patches = [3]
@@ -208,7 +208,7 @@ class LlavaBaseClass:
     def generate_token_grad(self, prompt: str, image: t.Tensor, **kwargs):
         inputs_embeds = self.prepare_inputs_grad(prompt, image)
         output = self.model.forward(
-            inputs_embeds=inputs_embeds, use_cache=True, **kwargs
+            inputs_embeds=inputs_embeds, **kwargs
         )
 
         return output
