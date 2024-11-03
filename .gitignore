@@ -4,4 +4,5 @@
 .vscode/settings.json
 __pycache__
 .py310
+.py310_venv
 wandb

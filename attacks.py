@@ -13,17 +13,19 @@ from custom_image_transforms import CustomTransforms
 
 
 class ControlSingleTokenAttack:
-    def __init__(self, base_instance, cfg, wandb_name=None) -> None:
+    def __init__(
+        self, base_instance, cfg, wandb_name=None, wandb_logging=False
+    ) -> None:
         self.base = base_instance
         self.cfg = cfg
         self.device = DEVICE
+        self.wandb_logging = wandb_logging
 
-        if self.cfg.wandb_name is None:
-            self.cfg.wandb_name = wandb_name
-
-        wandb.init(
-            project=self.cfg.wandb_project, name=self.cfg.wandb_name, config=self.cfg
-        )
+        if self.wandb_logging:
+            self.cfg.wandb_name = self.cfg.wandb_name or wandb_name
+            wandb.init(
+                project=self.cfg.wandb_project, name=self.cfg.wandb_name, config=self.cfg
+            )
 
         # Create directory for saving tensors
         os.makedirs(PATH_TO_TENSORS, exist_ok=True)
@@ -39,7 +41,7 @@ class ControlSingleTokenAttack:
             target = self.cfg.single_token_target[0]
 
         init_image = transforms.ToTensor()(image).to(t.bfloat16).to(self.device)
-        delta = t.zeros_like(
+        delta = 0.5*t.ones_like(
             init_image, dtype=t.bfloat16, requires_grad=True, device=self.device
         )
 
@@ -75,20 +77,22 @@ class ControlSingleTokenAttack:
             loss = loss_fn(next_token_logits, target_tokenized[:, -1])
             loss.backward()
             loss_train.append(loss.item())
-            wandb.log({"train_loss": loss.item()}, step=step + 1)
+            if self.wandb_logging:
+                wandb.log({"train_loss": loss.item()}, step=step + 1)
 
             optimizer.step()
 
             if (step + 1) % (self.cfg.n_epochs // self.cfg.n_logs) == 0:
                 next_token_probs = t.softmax(next_token_logits, dim=-1)
                 target_token_prob = next_token_probs[0, target_tokenized.item()]
-                wandb.log(
-                    {
-                        "next_token_pred": next_token_pred,
-                        "target_token_prob": target_token_prob.item(),
-                    },
-                    step=step + 1,
-                )
+                if self.wandb_logging:
+                    wandb.log(
+                        {
+                            "next_token_pred": next_token_pred,
+                            "target_token_prob": target_token_prob.item(),
+                        },
+                        step=step + 1,
+                    )
                 if verbose:
                     print(f"Step {step+1}:")
                     print(f"loss: {loss.item():.4f}")
@@ -103,10 +107,11 @@ class ControlSingleTokenAttack:
             t.save(
                 eval(tensor_name), os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt")
             )
-            wandb.save(
-                os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"),
-                base_path="data_storage",
-            )
+            if self.wandb_logging:
+                wandb.save(
+                    os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"),
+                    base_path="data_storage",
+                )
 
         return init_image, delta, loss_train
 
@@ -160,7 +165,8 @@ class ControlSingleTokenAttack:
                     f"Generation method {generation_method} not implemented yet."
                 )
 
-        wandb.log({"answer": answer})
+            if self.wandb_logging:
+                wandb.log({"answer": answer})
 
         return output, answer
 
@@ -175,6 +181,7 @@ class ControlMultipleTokensAttack:
         cfg,
         wandb_run_id: Optional[str] = None,
         wandb_name: Optional[str] = None,
+        wandb_logging: Optional[bool] = False,
     ) -> None:
         # if a wandb_entity is provided, a previous run will be used instead of starting a new one
         # this is useful e.g. when we want to load a previously obtained perturbation
@@ -184,7 +191,9 @@ class ControlMultipleTokensAttack:
         self.wandb_name = wandb_name or self.cfg.wandb_name
         self.wandb_run_id = wandb_run_id
         self.device = DEVICE
-        self._init_wandb()
+        self.wandb_logging = wandb_logging
+        if self.wandb_logging:
+            self._init_wandb()
 
     def _init_wandb(self) -> None:
         run = wandb.init(
@@ -215,7 +224,7 @@ class ControlMultipleTokensAttack:
     ) -> Tuple[Optional[t.Tensor], t.Tensor]:
         if isinstance(image, Image.Image):
             init_image = transforms.ToTensor()(image).to(t.bfloat16).to(self.device)
-            delta = t.zeros_like(
+            delta = 0.5*t.ones_like(
                 init_image, dtype=t.bfloat16, requires_grad=True, device=self.device
             )
         elif image is None:
@@ -317,9 +326,10 @@ class ControlMultipleTokensAttack:
         for tensor_name, tensor in [("init_image", init_image), ("delta", delta)]:
             if tensor is not None:
                 t.save(tensor, os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"))
-                wandb.save(
-                    os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"),
-                    base_path="data_storage",
+                if self.wandb_logging:
+                    wandb.save(
+                        os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"),
+                        base_path="data_storage",
                 )
 
     def train_attack(
@@ -338,7 +348,8 @@ class ControlMultipleTokensAttack:
             self.cfg.n_epochs > self.cfg.n_logs
         ), "For MultiTokenAttack, n_epochs must be greater than n_logs."
 
-        wandb.log({"training_method": training_method})
+        if self.wandb_logging:
+            wandb.log({"training_method": training_method})
         target = target or self.cfg.multi_token_target
         print(f"Target: {target}")
 
@@ -363,17 +374,19 @@ class ControlMultipleTokensAttack:
             loss.backward()
             loss_train.append(loss.item())
 
-            wandb.log({"train_loss": loss.item()}, step=step + 1)
+            if self.wandb_logging:
+                wandb.log({"train_loss": loss.item()}, step=step + 1)
             optimizer.step()
 
             if (step + 1) % (self.cfg.n_epochs // self.cfg.n_logs) == 0:
-                wandb.log(
-                    {
-                        "next_token_preds": next_token_preds,
+                if self.wandb_logging:
+                    wandb.log(
+                        {
+                            "next_token_preds": next_token_preds,
                         "target_token_probs": target_token_probs,
                     },
-                    step=step + 1,
-                )
+                        step=step + 1,
+                    )
                 if verbose:
                     print(f"Step {step+1}:")
                     print(f"loss: {loss.item():.4f}")
@@ -450,8 +463,9 @@ class ControlMultipleTokensAttack:
                     f"Generation method {generation_method} not implemented yet."
                 )
 
-        wandb.log({"generation_method": generation_method})
-        wandb.log({"answer": answer})
+            if self.wandb_logging:
+                wandb.log({"generation_method": generation_method})
+                wandb.log({"answer": answer})
 
         return output, answer
 
@@ -476,7 +490,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                 for img in images
             ]
             if len(set([x.shape for x in init_images])) == 1:
-                delta = t.zeros_like(
+                delta = 0.5*t.ones_like(
                     init_images[0],
                     dtype=t.bfloat16,
                     requires_grad=True,
@@ -519,10 +533,11 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         os.makedirs(PATH_TO_TENSORS, exist_ok=True)
         for tensor_name, tensor in [("delta", delta)]:
             t.save(tensor, os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"))
-            wandb.save(
-                os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"),
-                base_path="data_storage",
-            )
+            if self.wandb_logging:
+                wandb.save(
+                    os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"),
+                    base_path="data_storage",
+                )
 
     def _assertions(
         self,
@@ -569,7 +584,8 @@ class JailbreakAttack(ControlMultipleTokensAttack):
     ) -> Tuple[t.Tensor, List[float]]:
         eps = eps or self.cfg.eps
         self._assertions(prompts, images, targets, batch_size)
-        wandb.log({"training_method": training_method})
+        if self.wandb_logging:
+            wandb.log({"training_method": training_method})
 
         init_images, delta = self._initialize_delta(images)
 
@@ -649,14 +665,15 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                 loss_batch.backward()
                 loss_train.append(loss_batch.item())
 
-                wandb.log({"train_loss": loss_batch.item()}, step=current_iter)
-                wandb.log(
-                    {
-                        "next_token_preds_batch": json.dumps(next_token_preds_batch),
-                        "target_token_probs_batch": json.dumps(target_token_probs),
-                    },
-                    step=current_iter,
-                )
+                if self.wandb_logging:
+                    wandb.log({"train_loss": loss_batch.item()}, step=current_iter)
+                    wandb.log(
+                        {
+                            "next_token_preds_batch": json.dumps(next_token_preds_batch),
+                            "target_token_probs_batch": json.dumps(target_token_probs),
+                        },
+                        step=current_iter,
+                    )
 
                 optimizer.step()
 
@@ -771,8 +788,9 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                     f"Generation method {generation_method} not implemented yet."
                 )
 
-        wandb.log({"generation_method": generation_method})
-        wandb.log({"answer": answer})
+            if self.wandb_logging:
+                wandb.log({"generation_method": generation_method})
+                wandb.log({"answer": answer})
 
         return output, answer
 
@@ -818,7 +836,8 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                 answers.append(answer)
             answers_dict[gen_method] = answers
 
-        wandb.log({"answers_dict": answers_dict})
+            if self.wandb_logging:
+                wandb.log({"answers_dict": answers_dict})
         return answers_dict
 
     def test_dataset(
@@ -832,10 +851,11 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         for gen_method in answers_dict.keys():
             df_test[gen_method] = answers_dict[gen_method]
 
-        artifact = wandb.Artifact("jailbreak_data", type="jailbreak_data")
-        table = wandb.Table(dataframe=df_test)
-        artifact.add(table, name="jailbreak_completions")
-        self.run.log_artifact(artifact)
+        if self.wandb_logging:
+            artifact = wandb.Artifact("jailbreak_data", type="jailbreak_data")
+            table = wandb.Table(dataframe=df_test)
+            artifact.add(table, name="jailbreak_completions")
+            self.run.log_artifact(artifact)
 
         return table
 
@@ -863,9 +883,10 @@ class JailbreakAttack(ControlMultipleTokensAttack):
 
                 df.loc[ind, col_name] = answer
 
-        scores_artifact = wandb.Artifact("jailbreak_scores", type="jailbreak_scores")
-        table = wandb.Table(dataframe=df)
-        scores_artifact.add(table, name="jailbreak_scores")
-        self.run.log_artifact(scores_artifact)
+            if self.wandb_logging:
+                scores_artifact = wandb.Artifact("jailbreak_scores", type="jailbreak_scores")
+                table = wandb.Table(dataframe=df)
+                scores_artifact.add(table, name="jailbreak_scores")
+                self.run.log_artifact(scores_artifact)
 
         return table
