@@ -335,8 +335,8 @@ class ControlMultipleTokensAttack:
     def train_attack(
         self,
         prompt: Union[str, List[str]],
-        image: Optional[Image.Image] = None,
-        target: Optional[List[str]] = None,
+        image: Union[Image.Image, None],
+        target: List[str],
         training_method: Literal[
             "autoregressive", "teacher_forcing"
         ] = "autoregressive",
@@ -350,8 +350,6 @@ class ControlMultipleTokensAttack:
 
         if self.wandb_logging:
             wandb.log({"training_method": training_method})
-        target = target or self.cfg.multi_token_target
-        print(f"Target: {target}")
 
         init_image, delta = self._initialize_delta(image)
         optimizer = self.cfg.optimizer(
@@ -406,12 +404,11 @@ class ControlMultipleTokensAttack:
         delta: Optional[t.Tensor] = None,
         eps: Optional[float] = None,
         generation_method: str = "automatic",
-        max_new_tokens: Optional[int] = None,
+        max_new_tokens: int = 10,
         no_eos_token: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         **kwargs,
     ) -> Tuple[Dict, List[str]]:
-        max_new_tokens = max_new_tokens or len(self.cfg.multi_token_target)
         eps = eps or self.cfg.eps
 
         if image is None and isinstance(delta, t.Tensor):
@@ -526,7 +523,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
             return perturbed_images
         return (
             delta.clamp(0, 1) * 255.0
-        )  # in this case, delta will be initialised as a tensor in the range [0, 1]
+        )
 
     # overwrites the method from ControlMultipleTokensAttack
     def _save_tensors(self, delta: t.Tensor) -> None:
@@ -599,7 +596,8 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         n_batches = len(dataloader)
         print(f"Number of batches: {n_batches}")
 
-        if augmentations is not None:
+        if augmentations:
+            print('Using augmentations')
             transforms = CustomTransforms(**augmentations)
 
         assert (
@@ -634,7 +632,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                         "Targets must be either a list of strings (tokens for a single target) or a list of list of strings (tokens for a set of targets)"
                     )
 
-                if augmentations is not None:
+                if augmentations:
                     if isinstance(perturbed_images, list):
                         perturbed_images = [transforms(img) for img in perturbed_images]
                     else:
