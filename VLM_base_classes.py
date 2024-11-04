@@ -180,11 +180,17 @@ class LlavaBaseClass:
 
         return image_embedded
 
-    def prepare_inputs_grad(self, prompt: str, image: t.Tensor):
+    def prepare_inputs_grad(self, prompt: str, image: t.Tensor, past_output: Optional[str] = None, system_prompt: Optional[str] = None):
         prompt_tokenized = self.tokenizer.encode(
             prompt, add_special_tokens=False, return_tensors="pt"
         ).to(self.device)
         prompt_embedded = self.embedder(prompt_tokenized)
+
+        if system_prompt is not None:
+            system_prompt_tokenized = self.tokenizer.encode(system_prompt, add_special_tokens=False, return_tensors='pt').to(self.device)
+            system_prompt_embedded = self.embedder(system_prompt_tokenized)
+        else:
+            system_prompt_embedded = self.system_prompt_embedded
 
         image_patches = self.get_and_join_patches(image)
         image_preprocessed = self.preprocess_image(image_patches)
@@ -193,7 +199,7 @@ class LlavaBaseClass:
         inputs_embedded = t.cat(
             (
                 self.bos_embedded,
-                self.system_prompt_embedded,
+                system_prompt_embedded,
                 self.user_embedded,
                 image_embedded,
                 prompt_embedded,
@@ -203,10 +209,15 @@ class LlavaBaseClass:
             dim=1,
         ).to(self.device)
 
+        # append output of previous generations - used for manual autoregressive loops
+        if past_output:
+            past_output_embedded = self.embedder(self.tokenizer.encode(past_output, add_special_tokens=False, return_tensors='pt').to(self.device))
+            inputs_embedded = t.cat((inputs_embedded, past_output_embedded), dim=1)
+
         return inputs_embedded
 
-    def generate_token_grad(self, prompt: str, image: t.Tensor, **kwargs):
-        inputs_embeds = self.prepare_inputs_grad(prompt, image)
+    def generate_token_grad(self, prompt: str, image: t.Tensor, past_output: Optional[str] = None, **kwargs):
+        inputs_embeds = self.prepare_inputs_grad(prompt, image, past_output)
         output = self.model.forward(
             inputs_embeds=inputs_embeds, **kwargs
         )
