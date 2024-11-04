@@ -5,11 +5,7 @@ import pandas as pd
 import torch as t
 import wandb
 
-from attacks import (
-    JailbreakAttack,
-    SingleTokenAttack,
-    MultipleTokensAttack,
-)
+from attacks import JailbreakAttack
 
 # from data import load_dataset
 from config import (
@@ -17,14 +13,11 @@ from config import (
     MODEL,
     PATH_TO_DATASETS,
     WANDB_KEY,
-    attack_config_DeepSeek,
-    attack_config_Llava,
-    jailbreak_config,
-    wandb_config,
+    attack_config,
 )
 from custom_image_transforms import CustomTransforms
 from models import load_model
-from utils import open_image_from_url, load_data_from_wandb
+from utils import open_image_from_url
 
 wandb.login(key=WANDB_KEY)
 
@@ -49,7 +42,6 @@ if MODEL == "DeepSeek-VL":
     img_size = processor.image_processor.image_size
 
     base_model_class = DeepSeekVLBaseClass
-    attack_config = attack_config_DeepSeek + wandb_config
 elif MODEL == "LLaVa":
     from VLM_base_classes import LlavaBaseClass
 
@@ -58,9 +50,10 @@ elif MODEL == "LLaVa":
     print("LLaVa grid points: ", model.config.image_grid_pinpoints)
 
     base_model_class = LlavaBaseClass
-    attack_config = attack_config_Llava + wandb_config
 else:
     raise NotImplementedError(f"Model {MODEL} not implemented yet.")
+
+attack_config["image_size"] = img_size
 
 # Instantiate the base class
 # Crucially, this needs to be done *after* swtiching the internal gradients off.
@@ -148,9 +141,12 @@ test_target = "dog"
 # multi_token_attack = ControlMultipleTokensAttack(
 #     base_instance, attack_config, wandb_name="autoregressive"
 # )
-# # init_image, delta, loss_train = multi_token_attack.train_attack(prompt, img, training_method='teacher_forcing')
+
+# multi_token_target=["вки", "deven", "的主要", "ordin", " kayaking"] # for DeepSeek
+# multi_token_target=["plots", "authentic", "отри", "Im", "Совет"] # for LLaVa
+# # # init_image, delta, loss_train = multi_token_attack.train_attack(prompt, img, training_method='teacher_forcing')
 # init_image, delta, loss_train = multi_token_attack.train_attack(
-#     test_prompt, img, training_method="autoregressive"
+#     test_prompt, img, multi_token_target, training_method="autoregressive"
 # )
 
 # # There are also two generation methods:
@@ -237,8 +233,8 @@ test_targets_tokenized = [
     ]
     for target in test_targets
 ]
-train_target_tokenized_single = train_targets_tokenized[0]
-test_target_tokenized_single = test_targets_tokenized[0]
+train_target_tokenized_single = train_targets_tokenized[:1]
+test_target_tokenized_single = test_targets_tokenized[:1]
 
 jailbreak_attack = JailbreakAttack(
     base_instance, jailbreak_config + wandb_config, wandb_name="test"
@@ -350,12 +346,8 @@ augmentations = {
 
 transform = CustomTransforms(**augmentations)
 
-# test_image = transforms.ToTensor()(img).to(t.bfloat16).to(DqEVICE).requires_grad_(True)
-# transformed_image = transform(test_image)
-# transforms.ToPILImage()(transformed_image.detach().cpu().float())
-
 augmentation_attack = JailbreakAttack(
-    base_instance, jailbreak_config + wandb_config, wandb_name="augmentations"
+    base_instance, attack_config, wandb_name="augmentations"
 )
 delta, loss_train = augmentation_attack.train(
     prompts=train_goal_single,
@@ -371,6 +363,7 @@ delta, loss_train = augmentation_attack.train(
 plt.plot(loss_train)
 plt.show()
 
+max_memory_used = t.cuda.max_memory_allocated() / 1024**3
 wandb.log({"max_memory_used": max_memory_used})
 print(f"Max memory used during the run: {max_memory_used} GB")
 wandb.log({"augmentations": augmentations})
