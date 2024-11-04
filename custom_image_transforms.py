@@ -1,12 +1,105 @@
 import torch as t
+import numpy as np
 from torchvision import transforms
-from torch.nn.functional import grid_sample
+from torch.nn.functional import grid_sample, interpolate
 
 
 class CustomTransforms:
     def __init__(self, **kwargs):
         self.params = {**kwargs}
         t.manual_seed(42)  # set seed to make the transforms deterministically random
+
+    def __call__(self, image: t.Tensor) -> t.Tensor:
+        """
+        Apply a series of image transformations to the input image.
+        Expects the image to be a torch.Tensor in the range [0.0, 255.0].
+
+        Args:
+            image (t.Tensor): The input image tensor of shape [3, H, W].
+
+        Returns:
+            t.Tensor: The transformed image tensor of shape [3, H, W].
+        """
+        device = image.device
+        _, h, w = image.shape
+        dtype = image.dtype
+
+        # changing contrast
+        if self.params.get("contrast_range") is not None:
+            assert (
+                len(self.params["contrast_range"]) == 2
+            ), "contrast_range must be a tuple of two numbers"
+            assert (
+                self.params["contrast_range"][0] < self.params["contrast_range"][1]
+            ), "contrast_range[0] must be less than contrast_range[1]"
+
+            lower, upper = self.params["contrast_range"]
+            contrast_factor = (
+                t.rand(1, device=device, dtype=dtype)
+                * (upper - lower)
+                + lower
+            )
+            
+            # image = transforms.functional.adjust_contrast(image, contrast_factor)
+            mean = image.mean(dim=[-1, -2], keepdim=True)
+            image = (image - mean) * contrast_factor + mean
+
+        # shift the result in x and y
+        if self.params.get("max_jitter_ratio") is not None:
+            assert (
+                self.params["max_jitter_ratio"] > 0
+            ), "max_jitter_ratio must be positive"
+
+            max_height_jitter = int(h * self.params["max_jitter_ratio"])
+            max_width_jitter = int(w * self.params["max_jitter_ratio"])
+            jit_x = np.random.randint(-max_height_jitter, max_height_jitter+1)
+            jit_y = np.random.randint(-max_width_jitter, max_width_jitter+1)
+
+            image = t.roll(image, shifts=(jit_x, jit_y), dims=(-2, -1))
+
+        # shifting in the color <-> grayscale axis
+        if self.params.get("color_amount") is not None:
+            assert (
+                0 <= self.params["color_amount"] <= 1
+            ), "color_amount must be between 0 and 1"
+            color_amount = self.params["color_amount"]
+            image = color_amount * image + t.mean(image, axis=0, keepdims=True) * (
+                1 - color_amount
+            )
+
+        # descrease the resolution
+        if self.params.get("down_res") is not None and self.params.get("down_noise") is not None:
+            down_res = self.params["down_res"]
+            down_noise = self.params["down_noise"]
+            image = interpolate(image.unsqueeze(0), size=(down_res, down_res), mode="bicubic").squeeze(0)
+
+            # random uniform is recommended over random normal
+            # this is because uniform is bouned by [0, 1), so does not suffer from outliers outside of 1 sigma, 2 sigma, etc.
+            noise = down_noise * 255.0 * (t.rand_like(image)-0.5)
+            # noise = down_noise * 255.0/2.0 * t.randn_like(image)
+            image = image + noise
+
+        # increase the resolution
+        if self.params.get("up_res") is not None and self.params.get("up_noise") is not None:
+            up_res = self.params["up_res"]
+            up_noise = self.params["up_noise"]
+            image = interpolate(image.unsqueeze(0), size=(up_res, up_res), mode="bicubic").squeeze(0)
+
+            noise = up_noise * 255.0 * (t.rand_like(image)-0.5)
+            # noise = up_noise * 255.0/2.0 * t.randn_like(image)
+            image = image + noise
+
+        # clipping to the right range of values
+        image = t.clamp(image, 0, 255)
+
+        return image
+    
+
+class CustomTransforms_old:
+    def __init__(self, **kwargs):
+        self.params = {**kwargs}
+        self.seed = self.params.get("seed", 42)
+        t.manual_seed(self.seed)  # set seed to make the transforms deterministically random
 
     def __call__(self, image: t.Tensor) -> t.Tensor:
         device = image.device

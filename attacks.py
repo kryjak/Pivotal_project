@@ -619,6 +619,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                 perturbed_images = self._get_perturbed_images(
                     batch_init_images, delta, eps
                 )  # Union[List[t.Tensor], t.Tensor]
+                # output is in the range [0.0, 255.0], not [0.0, 1.0]
 
                 loss_batch = t.tensor(0.0).to(self.device)
 
