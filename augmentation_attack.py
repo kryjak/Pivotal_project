@@ -92,7 +92,7 @@ augmentations = {
 #     test_prompt[0], img, multi_token_target, training_method="autoregressive"
 # )
 
-augmentation_attack = JailbreakAttack(base_instance, attack_config)
+augmentation_attack = JailbreakAttack(base_instance, attack_config, wandb_logging=True)
 
 delta, loss_train = augmentation_attack.train(
     prompts=test_prompt,

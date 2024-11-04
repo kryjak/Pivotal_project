@@ -7,7 +7,7 @@ PATH_TO_REPOS = os.path.split(os.getcwd())[0] # path to the directory containing
 PATH_TO_DATASETS = os.path.join(os.getcwd(), 'data_storage', 'datasets')
 PATH_TO_TENSORS = os.path.join(os.getcwd(), 'data_storage', 'tensors')
 # Allowed models: 'DeepSeek-VL', 'LLaVa'
-MODEL = "DeepSeek-VL"
+MODEL = "LLaVa"
 
 WANDB_PROJECT = "pivotal_adv_attacks"
 WANDB_NAME = None
@@ -16,11 +16,11 @@ WANDB_KEY = os.getenv("WANDB_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 attack_config = DotDict(
-    n_epochs=750,
-    n_logs=20,
+    n_epochs=7500,
+    n_logs=100,
     eps=8 / 255,
     optimizer=t.optim.AdamW,
-    lr=1e-1,
+    lr=1e-2,
     weight_decay=1e-2,
 )
 
