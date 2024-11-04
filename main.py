@@ -237,7 +237,7 @@ train_target_tokenized_single = train_targets_tokenized[:1]
 test_target_tokenized_single = test_targets_tokenized[:1]
 
 jailbreak_attack = JailbreakAttack(
-    base_instance, jailbreak_config + wandb_config, wandb_name="test"
+    base_instance, attack_config, wandb_name="test"
 )
 
 delta, loss_train = jailbreak_attack.train(
