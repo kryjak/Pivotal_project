@@ -6,7 +6,7 @@ from PIL import Image
 from torchvision import transforms
 import torch as t
 import wandb
-from config import DEVICE, PATH_TO_TENSORS
+from config import DEVICE, PATH_TO_TENSORS, WANDB_KEY
 from torch.utils.data import DataLoader
 from data import VLMJailbreakDataset, custom_collate_fn
 from custom_image_transforms import CustomTransforms
@@ -23,6 +23,7 @@ class ControlSingleTokenAttack:
 
         if self.wandb_logging:
             self.cfg.wandb_name = self.cfg.wandb_name or wandb_name
+            wandb.login(key=WANDB_KEY)
             wandb.init(
                 project=self.cfg.wandb_project, name=self.cfg.wandb_name, config=self.cfg
             )
@@ -193,6 +194,7 @@ class ControlMultipleTokensAttack:
         self.device = DEVICE
         self.wandb_logging = wandb_logging
         if self.wandb_logging:
+            wandb.login(key=WANDB_KEY)
             self._init_wandb()
 
     def _init_wandb(self) -> None:
@@ -474,8 +476,9 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         cfg,
         wandb_run_id: Optional[str] = None,
         wandb_name: Optional[str] = None,
+        wandb_logging: Optional[bool] = False,
     ) -> None:
-        super().__init__(base_instance, cfg, wandb_run_id, wandb_name)
+        super().__init__(base_instance, cfg, wandb_run_id, wandb_name, wandb_logging)
 
     # overwrites the method from ControlMultipleTokensAttack
     def _initialize_delta(
