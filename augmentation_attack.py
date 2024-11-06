@@ -96,11 +96,13 @@ augmentation_attack = JailbreakAttack(base_instance, attack_config, wandb_loggin
 
 delta, loss_train = augmentation_attack.train(
     prompts=test_prompt,
-    images=[img_gray],
+    # images=[img_gray],
+    images=None,
     targets=test_target,
     training_method="teacher_forcing",
     use_cache=False,
     batch_size=1,
+    early_stop_loss=0.1,
     augmentations=augmentations,
 )
 
