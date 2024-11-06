@@ -67,12 +67,12 @@ img_gray = transforms.ToPILImage()(img_gray)
 
 ## ATTACKS
 test_prompt = ["What is shown in this image?"]
-test_target = [["cat"]]
+test_target = [["sun"]]
 
 augmentations = {
-    "contrast_range": (0.9, 1.1),
-    "max_jitter_ratio": 0.01,
-    "color_amount": 0.9,  # has to be between 0 and 1
+    "contrast_range": (0.7, 1.5),
+    "max_jitter_ratio": 0.1,
+    "color_amount": 0.7,  # has to be between 0 and 1
     # "down_res": 224,
     # "up_res": img_size,
     # "down_noise": 0.05, # recommended <0.1
@@ -96,7 +96,7 @@ augmentation_attack = JailbreakAttack(base_instance, attack_config, wandb_loggin
 
 delta, loss_train = augmentation_attack.train(
     prompts=test_prompt,
-    images=[img],
+    images=[img_gray],
     targets=test_target,
     training_method="teacher_forcing",
     use_cache=False,
@@ -115,7 +115,8 @@ delta_pil = transforms.ToPILImage()(delta.clamp(0, 1).detach().cpu().float())
 delta_pil.show()
 
 # display the transformed image
-# transformed_image = (transforms.ToTensor()(img) + jailbreak_config.eps * delta.clamp(-1, 1))
-# t.save(transformed_image, os.path.join(PATH_TO_TENSORS, f"transformed_image.pt"))
-# transformed_image_pil = transforms.ToPILImage()(transformed_image.clamp(0, 1).detach().cpu().float())
-# transformed_image_pil.show()
+transformed_image = (transforms.ToTensor()(img_gray).to(delta.device) + attack_config.eps * delta.clamp(-1, 1))
+t.save(transformed_image, os.path.join(PATH_TO_TENSORS, f"transformed_image.pt"))
+transformed_image_pil = transforms.ToPILImage()(transformed_image.clamp(0, 1).detach().cpu().numpy().transpose(1,2,0))
+transformed_image_pil.show()
+transformed_image_pil.save('transformed_image.png')

@@ -696,6 +696,10 @@ class JailbreakAttack(ControlMultipleTokensAttack):
 
                 current_iter += 1
 
+                if loss_batch.mean() < 0.1:
+                    print(f"Stopped optimising at step {step} upon reaching loss {loss_batch.mean():.2f}")
+                    break
+
         self._save_tensors(delta)
         return delta, loss_train
 

@@ -16,12 +16,12 @@ WANDB_KEY = os.getenv("WANDB_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 attack_config = DotDict(
-    n_epochs=7500,
+    n_epochs=5000,
     n_logs=100,
-    eps=8 / 255,
-    optimizer=t.optim.AdamW,
+    eps=255 / 255,
+    optimizer=t.optim.SGD,
     lr=1e-2,
-    weight_decay=1e-2,
+    weight_decay=0,
 )
 
 wandb_config = DotDict(wandb_project=WANDB_PROJECT, wandb_name=WANDB_NAME)
