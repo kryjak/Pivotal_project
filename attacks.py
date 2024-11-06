@@ -588,7 +588,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         
         self._assertions(prompts, images, targets, batch_size)
         if self.wandb_logging:
-            wandb.log({"training_method": training_method})
+            wandb.log({"training_method": training_method}, step=1)
 
         init_images, delta = self._initialize_delta(images)
 
