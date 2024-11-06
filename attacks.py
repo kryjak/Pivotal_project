@@ -578,11 +578,14 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         ] = "autoregressive",
         use_cache: Optional[bool] = False,
         eps: Optional[float] = None,
-        verbose: bool = True,
-        batch_size: int = 8,
+        verbose: Optional[bool] = True,
+        batch_size: Optional[int] = 8,
+        early_stop_loss: Optional[float] = 0.1,
         augmentations: Optional[dict] = None,
     ) -> Tuple[t.Tensor, List[float]]:
         eps = eps or self.cfg.eps
+        early_stop = False
+        
         self._assertions(prompts, images, targets, batch_size)
         if self.wandb_logging:
             wandb.log({"training_method": training_method})
@@ -664,15 +667,18 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                     next_token_preds_batch[ii] = next_token_preds
                     target_token_probs_batch[ii] = target_token_probs
 
-                loss_batch.backward()
-                loss_train.append(loss_batch.item())
+                mean_loss = loss_batch / len(batch_prompts)
+
+                mean_loss.backward()
+                loss_train.append(mean_loss.item())
 
                 if self.wandb_logging:
-                    wandb.log({"train_loss": loss_batch.item()}, step=current_iter)
                     wandb.log(
                         {
+                            "batch_idx": batch_idx+1,
+                            "train_loss": mean_loss.item(),
                             "next_token_preds_batch": json.dumps(next_token_preds_batch),
-                            "target_token_probs_batch": json.dumps(target_token_probs),
+                            "target_token_probs_batch": json.dumps(target_token_probs_batch),
                         },
                         step=current_iter,
                     )
@@ -689,16 +695,21 @@ class JailbreakAttack(ControlMultipleTokensAttack):
                         )
                         print(f"next_token_preds_batch: {next_token_preds_batch}")
                         print(f"target_token_probs_batch: {target_token_probs_batch}")
-                        print(f"loss: {loss_batch.item():.4f}")
+                        print(f"loss: {mean_loss.item():.4f}")
                         print("------------------")
 
                 t.cuda.empty_cache()
 
                 current_iter += 1
 
-                if loss_batch.mean() < 0.1:
-                    print(f"Stopped optimising at step {step} upon reaching loss {loss_batch.mean():.2f}")
-                    break
+                if early_stop_loss is not None:
+                    if mean_loss < early_stop_loss:
+                        print(f"Stopped optimising at step {step} upon reaching loss {mean_loss:.2f}")
+                        early_stop = True
+                        break
+
+            if early_stop:
+                break
 
         self._save_tensors(delta)
         return delta, loss_train
