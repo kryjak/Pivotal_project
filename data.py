@@ -4,6 +4,21 @@ from typing import Union, List
 
 
 class VLMJailbreakDataset(Dataset):
+    """A PyTorch Dataset for handling VLM (Vision Language Model) data.
+
+    This dataset manages prompts, optional images, and their corresponding targets.
+    It supports both text-only and multimodal (text + image) data formats.
+
+    Args:
+        prompts (List): A list of text prompts.
+        images (Union[List[t.Tensor], None]): A list of image tensors or None if no images.
+        targets (List[List[str]]): A list of target responses, where each target is a list of strings (tokens).
+
+    Attributes:
+        prompts (List): Stored text prompts.
+        images (Union[List[t.Tensor], None]): Stored image tensors or None.
+        targets (List[List[str]]): Stored target responses.
+    """
     def __init__(
         self,
         prompts: List,
@@ -26,6 +41,20 @@ class VLMJailbreakDataset(Dataset):
 
 
 def custom_collate_fn(batch):
+    """Custom collation function for DataLoader to handle batches with optional images.
+
+    This function processes batches by separating prompts, images, and targets.
+    Images are stacked into a single tensor if present, otherwise returns None.
+
+    Args:
+        batch: A list of tuples, where each tuple contains (prompt, image, target).
+
+    Returns:
+        tuple: Contains:
+            - list: Batch of prompts
+            - Union[torch.Tensor, None]: Stacked images or None if no images
+            - list: Batch of targets
+    """
     prompts, images, targets = zip(*batch)
 
     # Stack images if they exist, otherwise return a list of Nones

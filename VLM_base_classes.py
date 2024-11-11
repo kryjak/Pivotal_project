@@ -1,16 +1,28 @@
+from typing import Optional
+from io import BytesIO
+import base64
+
+import einops
+import torch as t
 from PIL import Image
 from torchvision import transforms
 from torchvision.transforms import functional as F
-import torch as t
-from config import DEVICE
 from transformers.models.llava_next.modeling_llava_next import unpad_image
-from io import BytesIO
-import base64
-from typing import Optional
-import einops
+
+from config import DEVICE
 
 
 class LlavaBaseClass:
+    """Base class for LLaVA-Next vision-language model interactions.
+
+    Handles the initialization and processing of inputs for the LLaVA-Next model,
+    including text tokenization, image preprocessing, and embedding generation.
+
+    Args:
+        model: The LLaVA-Next model instance
+        processor: The associated model processor/tokenizer
+    """
+
     def __init__(self, model, processor) -> None:
         self.model = model
         self.processor = processor
@@ -57,6 +69,17 @@ class LlavaBaseClass:
         max_new_tokens: int,
         no_eos_token: Optional[bool] = False,
     ):
+        """Generates text output based on an image and text prompt.
+
+        Args:
+            prompt (str): The text prompt to guide generation
+            image (Image.Image): PIL image to analyze
+            max_new_tokens (int): Maximum number of tokens to generate
+            no_eos_token (bool, optional): If True, prevents early stopping at EOS token
+
+        Returns:
+            tuple: (model_outputs, completion_text)
+        """
         assert isinstance(image, Image.Image), "Image must be a PIL image"
 
         # NORMAL LLAVA PIPELINE
@@ -120,8 +143,17 @@ class LlavaBaseClass:
         processor_mean: Optional[t.Tensor] = None,
         processor_std: Optional[t.Tensor] = None,
     ) -> t.Tensor:
-        """
-        Preprocesses the image tensor to the required format.
+        """Preprocesses image tensor for model input.
+
+        Rescales the image by 1/255, resizes to the image size of the LlaVa image processor and normalizes it according to the supplied mean and std.
+
+        Args:
+            image (t.Tensor): Input image tensor
+            processor_mean (t.Tensor, optional): Custom normalization mean. If None, uses the default mean for the processor.
+            processor_std (t.Tensor, optional): Custom normalization std. If None, uses the default std for the processor.
+
+        Returns:
+            t.Tensor: Preprocessed image tensor
         """
         if processor_mean is None:
             processor_mean = t.tensor(self.processor.image_processor.image_mean).to(
@@ -149,15 +181,26 @@ class LlavaBaseClass:
         return prep(image)
 
     def embed_image(self, image: t.Tensor) -> t.Tensor:
-        """
-        Embeds the image tensor into the embedding space.
+        """Embeds an image tensor into the model's embedding space.
+
+        Takes a preprocessed image tensor and projects it through the vision tower and
+        multi-modal projector to align with the text embedding space.
+
+        Args:
+            image (t.Tensor): 4D tensor of shape [patch, C, H, W] representing the image
+
+        Returns:
+            t.Tensor: Image features embedded in the model's embedding space
+
+        Raises:
+            AssertionError: If input tensor is not 4D with shape [patch, C, H, W]
         """
         assert (
             isinstance(image, t.Tensor) and image.ndim == 4
         ), "Tensor image must be 4D: [patch, C, H, W]"
         # we will only work with images <336x336, so the number of patches is 3
-        # this needs to be supplied as a list
-        image_num_patches = [3]
+
+        image_num_patches = [3]  # this needs to be supplied as a list
 
         image_features = self.model.vision_tower(image, output_hidden_states=True)
         selected_image_feature = image_features.hidden_states[
@@ -180,14 +223,36 @@ class LlavaBaseClass:
 
         return image_embedded
 
-    def prepare_inputs_grad(self, prompt: str, image: t.Tensor, past_output: Optional[str] = None, system_prompt: Optional[str] = None):
+    def prepare_inputs_grad(
+        self,
+        prompt: str,
+        image: t.Tensor,
+        past_output: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+    ):
+        """Prepares the complete input embedding sequence for the model.
+
+        Combines embeddings for system prompt, user prompt, image, and assistant tokens
+        into a single sequence for model input.
+
+        Args:
+            prompt (str): Text prompt to process
+            image (t.Tensor): Image tensor to embed
+            past_output (str, optional): Previous generation output for continuing sequences
+            system_prompt (str, optional): Custom system prompt to override default
+
+        Returns:
+            t.Tensor: Combined embedding sequence ready for model input
+        """
         prompt_tokenized = self.tokenizer.encode(
             prompt, add_special_tokens=False, return_tensors="pt"
         ).to(self.device)
         prompt_embedded = self.embedder(prompt_tokenized)
 
         if system_prompt is not None:
-            system_prompt_tokenized = self.tokenizer.encode(system_prompt, add_special_tokens=False, return_tensors='pt').to(self.device)
+            system_prompt_tokenized = self.tokenizer.encode(
+                system_prompt, add_special_tokens=False, return_tensors="pt"
+            ).to(self.device)
             system_prompt_embedded = self.embedder(system_prompt_tokenized)
         else:
             system_prompt_embedded = self.system_prompt_embedded
@@ -211,16 +276,33 @@ class LlavaBaseClass:
 
         # append output of previous generations - used for manual autoregressive loops
         if past_output:
-            past_output_embedded = self.embedder(self.tokenizer.encode(past_output, add_special_tokens=False, return_tensors='pt').to(self.device))
+            past_output_embedded = self.embedder(
+                self.tokenizer.encode(
+                    past_output, add_special_tokens=False, return_tensors="pt"
+                ).to(self.device)
+            )
             inputs_embedded = t.cat((inputs_embedded, past_output_embedded), dim=1)
 
         return inputs_embedded
 
-    def generate_token_grad(self, prompt: str, image: t.Tensor, past_output: Optional[str] = None, **kwargs):
+    def generate_token_grad(
+        self, prompt: str, image: t.Tensor, past_output: Optional[str] = None, **kwargs
+    ):
+        """Generates a single forward pass through the model for gradient computation.
+
+        Used for gradient-based analysis or attacks on the model.
+
+        Args:
+            prompt (str): Text prompt to process
+            image (t.Tensor): Image tensor to analyze
+            past_output (str, optional): Previous generation output for continuing sequences
+            **kwargs: Additional arguments passed to model.forward()
+
+        Returns:
+            ModelOutput: Output from model's forward pass including logits and hidden states
+        """
         inputs_embeds = self.prepare_inputs_grad(prompt, image, past_output)
-        output = self.model.forward(
-            inputs_embeds=inputs_embeds, **kwargs
-        )
+        output = self.model.forward(inputs_embeds=inputs_embeds, **kwargs)
 
         return output
 
@@ -273,7 +355,24 @@ class LlavaBaseClass:
         return all_image_features, feature_lens
 
     def get_and_join_patches(self, tensor_image):
-        """WARNING: this assumes the image is < 336x336px, such that it will be processed into 3 patches by LlaVa-Next"""
+        """Splits and reconstructs an image into patches for LLaVA-Next processing.
+
+        For images smaller than 336x336px, splits the image into three patches:
+        1. Original image
+        2. Left half padded with zeros on the left
+        3. Right half padded with zeros on the right
+
+        Args:
+            tensor_image (t.Tensor): Input image tensor
+
+        Returns:
+            t.Tensor: Stacked tensor containing the three image patches
+
+        Note:
+            This method assumes input images are smaller than 336x336px and will be
+            processed into exactly 3 patches by LLaVA-Next. For larger images or different
+            patch configurations, a different approach would be needed.
+        """
 
         # split the image into two halves and pad with 0s (black background)
         left_half, right_half = t.split(tensor_image, tensor_image.shape[-1] // 2, -1)
@@ -294,6 +393,16 @@ class LlavaBaseClass:
 
 
 class DeepSeekVLBaseClass:
+    """Base class for DeepSeek vision-language model interactions.
+
+    Handles initialization and processing of inputs for the DeepSeek model,
+    including text tokenization, image preprocessing, and embedding generation.
+
+    Args:
+        model: The DeepSeek model instance
+        processor: The associated model processor/tokenizer
+    """
+
     def __init__(self, model, processor) -> None:
         self.model = model
         self.processor = processor
@@ -328,7 +437,7 @@ class DeepSeekVLBaseClass:
         self.assistant_embedded = self.embedder(self.assistant_tokenized)
 
         try:
-            from deepseek_vl.utils.io import load_pil_images # type: ignore
+            from deepseek_vl.utils.io import load_pil_images  # type: ignore
 
             self.load_pil_images = load_pil_images
         except ImportError as e:
@@ -405,6 +514,20 @@ class DeepSeekVLBaseClass:
         use_cache: Optional[bool] = False,
         **kwargs,
     ):
+        """Generates text output based on an image and/or text prompt.
+
+        Args:
+            prompt (str): The text prompt to guide generation
+            image (t.Tensor, optional): Image tensor to analyze
+            system_prompt (str, optional): Custom system prompt
+            max_new_tokens (int, optional): Maximum number of tokens to generate
+            no_eos_token (bool, optional): If True, prevents early stopping at EOS token
+            use_cache (bool, optional): Whether to use key/value caching
+            **kwargs: Additional arguments passed to the generation function
+
+        Returns:
+            tuple: (model_outputs, completion_text)
+        """
         inputs_embeds = self.prepare_inputs_grad(prompt, image, system_prompt)
         attention_mask = t.ones((1, inputs_embeds.shape[1]), dtype=t.long).to(
             self.device
@@ -435,6 +558,18 @@ class DeepSeekVLBaseClass:
         return outputs, completion
 
     def preprocess_image(self, image: t.Tensor):
+        """Preprocesses image tensor for model input.
+
+        Rescales the image by 1/255 and resizes it to match the model's expected image size
+        using bicubic interpolation. In contrast to LLaVA-Next, DeepSeek does not normalize
+        the image.
+
+        Args:
+            image (t.Tensor): Input image tensor
+
+        Returns:
+            t.Tensor: Preprocessed image tensor resized to model's configuration size
+        """
         img_size = self.model.config.vision_config.params.image_size
         prep = transforms.Compose(
             [
@@ -444,6 +579,7 @@ class DeepSeekVLBaseClass:
                     interpolation=F.InterpolationMode.BICUBIC,
                     antialias=True,
                 ),
+                # DeepSeek does not normalize the image
                 # transforms.Normalize(mean=processor_mean, std=processor_std)
             ]
         )
@@ -451,6 +587,20 @@ class DeepSeekVLBaseClass:
         return prep(image)
 
     def embed_image(self, tensor_image: t.Tensor):
+        """Projects image through vision encoder and aligner for multi-modal processing.
+
+        Processes image through the vision model and aligns the features with the text
+        embedding space using the model's alignment layer.
+
+        Args:
+            tensor_image (t.Tensor): Preprocessed image tensor
+
+        Returns:
+            t.Tensor: Aligned image embeddings of shape [batch_size, num_patches, embedding_dim]
+
+        Raises:
+            AssertionError: If input is not a torch tensor
+        """
         assert isinstance(tensor_image, t.Tensor)
 
         if tensor_image.ndim != 5:
@@ -472,6 +622,20 @@ class DeepSeekVLBaseClass:
         past_output: Optional[str] = None,
         system_prompt: Optional[str] = None,
     ):
+        """Prepares the complete input embedding sequence for the model.
+
+        Combines embeddings for system prompt, user prompt, optional image, and assistant tokens
+        into a single sequence. Supports both text-only and multi-modal inputs.
+
+        Args:
+            prompt (str): Text prompt to process
+            image (t.Tensor, optional): Image tensor to embed
+            past_output (str, optional): Previous generation output for continuing sequences
+            system_prompt (str, optional): Custom system prompt to override default
+
+        Returns:
+            t.Tensor: Combined embedding sequence ready for model input
+        """
         prompt_tokenized = self.tokenizer.encode(
             prompt, add_special_tokens=False, return_tensors="pt"
         ).to(self.device)
@@ -518,6 +682,23 @@ class DeepSeekVLBaseClass:
         past_output: Optional[str] = None,
         **kwargs,
     ):
+        """Performs a single forward pass through the model for token generation or gradient analysis.
+
+        This is a lower-level method that performs a single forward pass, primarily used for:
+        1. Gradient-based analysis or attacks
+        2. As a building block for manual autoregressive generation
+
+        Args:
+            prompt (str): Text prompt to process
+            image (t.Tensor, optional): Image tensor to analyze
+            use_cache (bool, optional): Whether to use key/value caching
+            past_key_values (t.Tensor, optional): Past key values for the model's attention mechanism
+            past_output (str, optional): Previous generation output for continuing sequences
+            **kwargs: Additional arguments passed to the generation function
+
+        Returns:
+            ModelOutput: Output from model's forward pass including logits and hidden states
+        """
         inputs_embeds = self.prepare_inputs_grad(prompt, image, past_output)
         # not sure if this if statement is necessary
         # is past_key_values=None fine?
@@ -544,6 +725,28 @@ class DeepSeekVLBaseClass:
         no_eos_token: Optional[bool] = False,
         **kwargs,
     ):
+        """Generates text using manual token-by-token autoregressive generation.
+
+        Unlike generate_autoregressive() which uses the model's built-in generation method,
+        this function implements manual token-by-token generation. It utilises 'generate_token_grad()'
+        to perform a single forward pass through the model for each new token, thereby also allowing for the calculation of gradients.
+
+        Args:
+            prompt (str): Text prompt to guide generation
+            image (t.Tensor, optional): Image tensor to analyze
+            use_cache (bool, optional): Whether to use key/value caching
+            max_new_tokens (int): Maximum number of tokens to generate
+            no_eos_token (bool, optional): If True, continues generation even after EOS token
+            **kwargs: Additional arguments passed to generate_token_grad()
+
+        Returns:
+            tuple: (accumulated_final_logits, generated_tokens)
+                - accumulated_final_logits (t.Tensor): Logits for each generation step
+                - generated_tokens (list): List of generated token strings
+
+        Note:
+            This method is slower than generate_autoregressive() but offers more control
+        """
         generated_tokens = []
         accumulated_final_logits = t.tensor([]).to(self.device)
         past_key_values = None

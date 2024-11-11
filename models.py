@@ -8,18 +8,33 @@ from config import PATH_TO_REPOS, DEVICE
 import sys
 
 
-def clone_deepseek_repo(model_id="DeepSeek-VL") -> None:
+def clone_deepseek_repo(folder_name: str = "DeepSeek-VL") -> None:
+    """
+    Clones and installs the DeepSeek-VL repository, and adds it to the Python path.
+
+    Args:
+        folder_name (str, optional): The name of the model repository. Defaults to "DeepSeek-VL".
+
+    Returns:
+        None
+
+    Note:
+        - Clones the repository if it doesn't exist
+        - Installs the package in editable mode
+        - Adds the repository path to Python's sys.path
+        - Returns to the original Pivotal_project directory
+    """
     # Assuming your current working directory is 'gitrepos/Pivotal_project'
-    path_to_model = os.path.join(PATH_TO_REPOS, model_id)
+    path_to_model = os.path.join(PATH_TO_REPOS, folder_name)
 
     if not os.path.exists(path_to_model):
-        print(f"Cloning {model_id} repo to {path_to_model}")
+        print(f"Cloning {folder_name} repo to {path_to_model}")
         os.chdir(PATH_TO_REPOS)
         subprocess.run(
             ["git", "clone", "https://github.com/deepseek-ai/DeepSeek-VL"], check=True
         )
     else:
-        print(f"Repo for {model_id} already exists at {path_to_model}")
+        print(f"Repo for {folder_name} already exists at {path_to_model}")
 
     # Change to the DeepSeek-VL directory and install it
     os.chdir(path_to_model)
@@ -38,6 +53,24 @@ def clone_deepseek_repo(model_id="DeepSeek-VL") -> None:
 
 
 def load_model(model_name):
+    """
+    Loads and configures a specified vision-language model and its processor.
+
+    Args:
+        model_name (str): The name of the model to load. Must be either "DeepSeek-VL" or "LLaVa".
+
+    Returns:
+        tuple: A tuple containing:
+            - model: The loaded and configured model
+            - processor: The corresponding processor for the model
+
+    Raises:
+        ValueError: Implicitly raised if model_name is not one of the supported options.
+
+    Note:
+        - For DeepSeek-VL: Uses bfloat16 dtype
+        - For LLaVa: Uses 4-bit quantization with float16 dtype
+    """
     # specify the path to the model
     if model_name == "DeepSeek-VL":
         clone_deepseek_repo()

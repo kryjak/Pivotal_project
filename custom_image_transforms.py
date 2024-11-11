@@ -5,9 +5,47 @@ from torch.nn.functional import grid_sample, interpolate
 
 
 class CustomTransforms:
+    """
+    A class that applies various image transformations to torch tensor images.
+
+    The transformations can include:
+    - Contrast adjustment
+    - Spatial jittering
+    - Color to grayscale shifting
+    - Resolution downsampling with noise
+    - Resolution upsampling with noise
+
+    Parameters
+    ----------
+    **kwargs : dict
+        contrast_range : tuple(float, float), optional
+            Range for random contrast adjustment (min, max). The contrast factor is sampled uniformly from the range.
+        max_jitter_ratio : float, optional
+            Maximum ratio of image dimensions for random spatial shifts. The shift is sampled uniformly from the range [-max_jitter_ratio, max_jitter_ratio].
+        color_amount : float, optional
+            Value between 0 and 1 controlling color preservation (0=grayscale, 1=full color).
+        down_res : int, optional
+            Target resolution for downsampling
+        down_noise : float, optional
+            Noise strength to add after downsampling. Noise is sampled uniformly from the range [-down_noise/2, down_noise/2].
+        up_res : int, optional
+            Target resolution for upsampling
+        up_noise : float, optional
+            Noise strength to add after upsampling. Noise is sampled uniformly from the range [-up_noise/2, up_noise/2].
+
+    Notes
+    -----
+    - Input images should be torch.Tensors in the range [0.0, 255.0]
+    - The transformations are deterministically random (seed is set to 42)
+    - All transformations preserve the input tensor's device and dtype
+    - In order to add downsampled/upsampled noise, both (down_res, down_noise)/(up_res, up_noise) must be specified
+    """
+
     def __init__(self, **kwargs):
         self.params = {**kwargs}
-        t.manual_seed(42)  # set seed to make the transforms deterministically random
+        self.seed = self.params.get("seed", 42)
+        # set seed to make the transforms deterministically random
+        t.manual_seed(self.seed)
 
     def __call__(self, image: t.Tensor) -> t.Tensor:
         """
@@ -35,11 +73,9 @@ class CustomTransforms:
 
             lower, upper = self.params["contrast_range"]
             contrast_factor = (
-                t.rand(1, device=device, dtype=dtype)
-                * (upper - lower)
-                + lower
+                t.rand(1, device=device, dtype=dtype) * (upper - lower) + lower
             )
-            
+
             # image = transforms.functional.adjust_contrast(image, contrast_factor)
             mean = image.mean(dim=[-1, -2], keepdim=True)
             image = (image - mean) * contrast_factor + mean
@@ -52,8 +88,8 @@ class CustomTransforms:
 
             max_height_jitter = int(h * self.params["max_jitter_ratio"])
             max_width_jitter = int(w * self.params["max_jitter_ratio"])
-            jit_x = np.random.randint(-max_height_jitter, max_height_jitter+1)
-            jit_y = np.random.randint(-max_width_jitter, max_width_jitter+1)
+            jit_x = np.random.randint(-max_height_jitter, max_height_jitter + 1)
+            jit_y = np.random.randint(-max_width_jitter, max_width_jitter + 1)
 
             image = t.roll(image, shifts=(jit_x, jit_y), dims=(-2, -1))
 
@@ -68,24 +104,34 @@ class CustomTransforms:
             )
 
         # descrease the resolution
-        if self.params.get("down_res") is not None and self.params.get("down_noise") is not None:
+        if (
+            self.params.get("down_res") is not None
+            and self.params.get("down_noise") is not None
+        ):
             down_res = self.params["down_res"]
             down_noise = self.params["down_noise"]
-            image = interpolate(image.unsqueeze(0), size=(down_res, down_res), mode="bicubic").squeeze(0)
+            image = interpolate(
+                image.unsqueeze(0), size=(down_res, down_res), mode="bicubic"
+            ).squeeze(0)
 
             # random uniform is recommended over random normal
             # this is because uniform is bouned by [0, 1), so does not suffer from outliers outside of 1 sigma, 2 sigma, etc.
-            noise = down_noise * 255.0 * (t.rand_like(image)-0.5)
+            noise = down_noise * 255.0 * (t.rand_like(image) - 0.5)
             # noise = down_noise * 255.0/2.0 * t.randn_like(image)
             image = image + noise
 
         # increase the resolution
-        if self.params.get("up_res") is not None and self.params.get("up_noise") is not None:
+        if (
+            self.params.get("up_res") is not None
+            and self.params.get("up_noise") is not None
+        ):
             up_res = self.params["up_res"]
             up_noise = self.params["up_noise"]
-            image = interpolate(image.unsqueeze(0), size=(up_res, up_res), mode="bicubic").squeeze(0)
+            image = interpolate(
+                image.unsqueeze(0), size=(up_res, up_res), mode="bicubic"
+            ).squeeze(0)
 
-            noise = up_noise * 255.0 * (t.rand_like(image)-0.5)
+            noise = up_noise * 255.0 * (t.rand_like(image) - 0.5)
             # noise = up_noise * 255.0/2.0 * t.randn_like(image)
             image = image + noise
 
@@ -93,13 +139,14 @@ class CustomTransforms:
         image = t.clamp(image, 0, 255)
 
         return image
-    
+
 
 class CustomTransforms_old:
     def __init__(self, **kwargs):
         self.params = {**kwargs}
         self.seed = self.params.get("seed", 42)
-        t.manual_seed(self.seed)  # set seed to make the transforms deterministically random
+        # set seed to make the transforms deterministically random
+        t.manual_seed(self.seed)
 
     def __call__(self, image: t.Tensor) -> t.Tensor:
         device = image.device
