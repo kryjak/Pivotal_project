@@ -678,9 +678,14 @@ class JailbreakAttack(ControlMultipleTokensAttack):
         return delta.clamp(0, 1) * 255.0
 
     # overwrites the method from ControlMultipleTokensAttack
-    def _save_tensors(self, delta: t.Tensor) -> None:
+    def _save_tensors(self, delta: t.Tensor, init_images: Optional[List[t.Tensor]] = None) -> None:
         os.makedirs(PATH_TO_TENSORS, exist_ok=True)
-        for tensor_name, tensor in [("delta", delta)]:
+        tensors_to_save = [("delta", delta)]
+        if init_images is not None:
+            stacked_init_images = t.stack(init_images)
+            tensors_to_save.append(("init_images", stacked_init_images))
+
+        for tensor_name, tensor in tensors_to_save:
             t.save(tensor, os.path.join(PATH_TO_TENSORS, f"{tensor_name}.pt"))
             if self.wandb_logging:
                 wandb.save(
