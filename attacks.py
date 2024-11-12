@@ -679,6 +679,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
 
     # overwrites the method from ControlMultipleTokensAttack
     def _save_tensors(self, delta: t.Tensor, init_images: Optional[List[t.Tensor]] = None) -> None:
+        print('Saving tensors...')
         os.makedirs(PATH_TO_TENSORS, exist_ok=True)
         tensors_to_save = [("delta", delta)]
         if init_images is not None:
@@ -894,7 +895,7 @@ class JailbreakAttack(ControlMultipleTokensAttack):
             if early_stop:
                 break
 
-        self._save_tensors(delta)
+        self._save_tensors(delta, init_images)
         return delta, loss_train
 
     def execute_with_clamp(
