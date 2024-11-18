@@ -1,6 +1,6 @@
-from typing import Optional
-from io import BytesIO
 import base64
+from io import BytesIO
+from typing import Optional
 
 import einops
 import torch as t
@@ -62,14 +62,15 @@ class LlavaBaseClass:
         self.assistant_embedded = self.embedder(self.assistant_tokenized)
 
     # Define model-specific methods
-    def generate_autoregressive(
+    def generate_autoregressive_with_pil(
         self,
         prompt: str,
         image: Image.Image,
         max_new_tokens: int,
         no_eos_token: Optional[bool] = False,
+        **kwargs,
     ):
-        """Generates text output based on an image and text prompt.
+        """Generates text output based on an image and text prompt based on the default LlaVa pre-processing steps. The input should be a PIL Image.
 
         Args:
             prompt (str): The text prompt to guide generation
@@ -83,28 +84,57 @@ class LlavaBaseClass:
         assert isinstance(image, Image.Image), "Image must be a PIL image"
 
         # NORMAL LLAVA PIPELINE
-        # direct_prompt = f"A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions. USER: <image>\n{prompt} ASSISTANT:"
-        # prepare_inputs = self.processor(
-        #             direct_prompt,
-        #             image,
-        #             return_tensors="pt",
-        #             padding=True,
-        #             do_pad=True).to(self.device)
+        direct_prompt = f"A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions. USER: <image>\n{prompt} ASSISTANT:"
+        prepare_inputs = self.processor(
+            direct_prompt, image, return_tensors="pt", padding=True, do_pad=True
+        ).to(self.device)
 
-        # inputs_embeds = self.model.prepare_inputs_embeds(**prepare_inputs)
+        # training a single token attack might cause the second generated token
+        # to be EoS. So we add an option to generate tokens beyond that.
+        if no_eos_token:
+            stopping_criterion = None
+        else:
+            stopping_criterion = self.tokenizer.eos_token_id
 
-        # output = self.model.forward(
-        # **prepare_inputs,
-        # return_dict=True,
-        # output_hidden_states=False,
-        # output_attentions=False,
-        # use_cache=False,
-        # )
+        outputs = self.model.generate(
+            **prepare_inputs,
+            bos_token_id=self.tokenizer.bos_token_id,
+            eos_token_id=stopping_criterion,
+            max_new_tokens=max_new_tokens,
+            # past_key_values=None, ???
+            output_hidden_states=False,
+            output_attentions=False,
+            return_dict_in_generate=True,
+            **kwargs,
+        )
+
+        completion = self.tokenizer.decode(
+            outputs.sequences[0].cpu().tolist(), skip_special_tokens=True
+        )
+        return outputs, completion
+
+    def generate_autoregressive(
+        self,
+        prompt: str,
+        image: t.Tensor,
+        max_new_tokens: int,
+        no_eos_token: Optional[bool] = False,
+    ):
+        """Generates text output based on an image and text prompt using the custom implementation of the pre-processing steps. The input should be a torch.Tensor.
+
+        Args:
+            prompt (str): The text prompt to guide generation
+            image (t.Tensor): Tensor image to analyze
+            max_new_tokens (int): Maximum number of tokens to generate
+            no_eos_token (bool, optional): If True, prevents early stopping at EOS token
+
+        Returns:
+            tuple: (model_outputs, completion_text)
+        """
+        assert isinstance(image, t.Tensor), "Image must be a torch.Tensor"
 
         # OUR OWN IMPLEMENTATION
-        inputs_embeds = self.prepare_inputs_grad(
-            prompt, transforms.PILToTensor()(image).float()
-        )
+        inputs_embeds = self.prepare_inputs_grad(prompt, image)
 
         # training a single token attack might cause the second generated token
         # to be EoS. So we add an option to generate tokens beyond that.
@@ -450,9 +480,9 @@ class DeepSeekVLBaseClass:
         image: Image.Image,
         max_new_tokens: Optional[int] = 1,
         no_eos_token: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
         **kwargs,
     ):
+        """Generates text output based on an image and text prompt using the default DeepSeekVL implementation of the pre-processing steps. The input should be a PIL Image."""
         assert isinstance(image, Image.Image), "Image must be a PIL image"
 
         buffered = BytesIO()
@@ -493,7 +523,6 @@ class DeepSeekVLBaseClass:
             bos_token_id=self.tokenizer.bos_token_id,
             eos_token_id=stopping_criterion,
             max_new_tokens=max_new_tokens,
-            use_cache=use_cache,  # does caching here matter?
             output_logits=True,
             return_dict_in_generate=True,
             **kwargs,
@@ -514,7 +543,7 @@ class DeepSeekVLBaseClass:
         use_cache: Optional[bool] = False,
         **kwargs,
     ):
-        """Generates text output based on an image and/or text prompt.
+        """Generates text output based on an image and text prompt using the custom implementation of the pre-processing steps. The input should be a torch.Tensor.
 
         Args:
             prompt (str): The text prompt to guide generation
@@ -792,3 +821,364 @@ class DeepSeekVLBaseClass:
         )
 
         return accumulated_final_logits, generated_tokens
+
+
+class QwenVLBaseClass:
+    """Base class for QwenVL model interactions.
+
+    Handles the initialization and processing of inputs for the QwenVL model,
+    including text tokenization and image preprocessing.
+
+    Args:
+        model: The QwenVL model instance
+        processor: The associated model processor/tokenizer
+    """
+
+    def __init__(self, model, processor) -> None:
+        self.model = model
+        self.processor = processor
+        self.device = DEVICE
+
+        self.tokenizer = self.processor.tokenizer
+
+        self.system_prompt = "You are a helpful assistant."
+        self.temporal_patch_size = self.processor.image_processor.temporal_patch_size
+        self.merge_size = self.processor.image_processor.merge_size
+        self.patch_size = self.processor.image_processor.patch_size
+
+        self.img_size = 336  # hard-coded as QwenVL uses dynamic resolution
+
+        try:
+            from qwen_vl_utils import process_vision_info  # type: ignore
+
+            self.process_vision_info = process_vision_info
+        except ImportError as e:
+            print(f"Warning: Could not import QwenVL utilities: {e}")
+
+    def preprocess_image(
+        self,
+        image: t.Tensor,
+        processor_mean: Optional[t.Tensor] = None,
+        processor_std: Optional[t.Tensor] = None,
+    ) -> t.Tensor:
+        """Preprocesses image tensor for model input.
+
+        Rescales the image by 1/255, resizes to the image size of the LlaVa image processor and normalizes it according to the supplied mean and std.
+
+        Args:
+            image (t.Tensor): Input image tensor
+            processor_mean (t.Tensor, optional): Custom normalization mean. If None, uses the default mean for the processor.
+            processor_std (t.Tensor, optional): Custom normalization std. If None, uses the default std for the processor.
+
+        Returns:
+            t.Tensor: Preprocessed image tensor
+        """
+        if processor_mean is None:
+            processor_mean = t.tensor(self.processor.image_processor.image_mean).to(
+                self.device
+            )
+        if processor_std is None:
+            processor_std = t.tensor(self.processor.image_processor.image_std).to(
+                self.device
+            )
+
+        prep = transforms.Compose(
+            [
+                transforms.Lambda(lambda x: x / 255.0),
+                transforms.Resize(
+                    size=(self.img_size, self.img_size),
+                    interpolation=F.InterpolationMode.BICUBIC,
+                    antialias=True,
+                ),  # resample=3 corresponds to BICUBIC
+                transforms.Normalize(mean=processor_mean, std=processor_std),
+            ]
+        )
+
+        input_tensor = prep(image)
+
+        if input_tensor.ndim == 3:
+            input_tensor = input_tensor.unsqueeze(
+                0
+            )  # introduce batch size if dealing with a single image
+            input_tensor = einops.repeat(
+                input_tensor, "1 c h w -> t c h w", t=self.temporal_patch_size
+            )
+
+        grid_t = input_tensor.shape[0] // self.temporal_patch_size
+        grid_h, grid_w = (
+            self.img_size // self.patch_size,
+            self.img_size // self.patch_size,
+        )
+
+        # L299
+        processed_image = einops.rearrange(
+            input_tensor,
+            "(b t) c (h m1 p1) (w m2 p2) -> b t c h m1 p1 w m2 p2",
+            b=grid_t,
+            t=self.temporal_patch_size,
+            h=grid_h // self.merge_size,
+            w=grid_w // self.merge_size,
+            m1=self.merge_size,
+            m2=self.merge_size,
+            p1=self.patch_size,
+            p2=self.patch_size,
+        )
+
+        # L310
+        processed_image = einops.rearrange(
+            processed_image,
+            "b t c h m1 p1 w m2 p2 -> b h w m1 m2 c t p1 p2",
+        )
+
+        # L311
+        processed_image = einops.rearrange(
+            processed_image,
+            "b h w m1 m2 c t p1 p2 -> (b h w m1 m2) (c t p1 p2)",
+        )
+
+    def prepare_inputs_grad(
+        self,
+        prompt: str,
+        image: Optional[t.Tensor] = None,
+        past_output: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+    ):
+        """Prepares the complete input embedding sequence for the model.
+
+        Combines embeddings for system prompt, user prompt, optional image, and assistant tokens
+        into a single sequence. Supports both text-only and multi-modal inputs.
+
+        Args:
+            prompt (str): Text prompt to process
+            image (t.Tensor, optional): Image tensor to embed
+            past_output (str, optional): Previous generation output for continuing sequences
+            system_prompt (str, optional): Custom system prompt to override default
+
+        Returns:
+
+        """
+
+        if system_prompt is not None:
+            conversation_start = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n<|vision_start|>"
+        else:
+            conversation_start = f"<|im_start|>system\n{self.system_prompt}<|im_end|>\n<|im_start|>user\n<|vision_start|>"
+        conversation_start_tokenized = self.tokenizer.encode(
+            conversation_start, add_special_tokens=False, return_tensors="pt"
+        ).to(self.device)
+
+        n_image_pad_tokens = (self.img_size // (self.merge_size * self.patch_size)) ** 2
+
+        image_placeholder = (
+            t.tensor([self.model.config.image_token_id] * n_image_pad_tokens)
+            .unsqueeze(0)
+            .to(self.device)
+        )
+
+        conversation_end = f"<|vision_end|>{prompt}<|im_end|>\n<|im_start|>assistant\n"
+        conversation_end_tokenized = self.tokenizer.encode(
+            conversation_end, add_special_tokens=False, return_tensors="pt"
+        ).to(self.device)
+
+        input_ids = t.cat(
+            (
+                conversation_start_tokenized,
+                image_placeholder,
+                conversation_end_tokenized,
+            ),
+            dim=1,
+        )
+
+        if bool(past_output):  # bool('') == False
+            past_output_tokenized = self.tokenizer.encode(
+                past_output, add_special_tokens=False, return_tensors="pt"
+            ).to(self.device)
+            input_ids = t.cat((input_ids, past_output_tokenized), dim=1)
+
+        attention_mask = t.ones_like(input_ids)
+
+        n_patches = self.img_size / self.patch_size
+        # dtype needs to be int64 here!
+        image_grid_thw = (
+            t.tensor([1, n_patches, n_patches], dtype=t.int64)
+            .unsqueeze(0)
+            .to(self.device)
+        )
+
+        pixel_values = self.preprocess_image(image)
+
+        output_dict = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "image_grid_thw": image_grid_thw,
+            "pixel_values": pixel_values,
+        }
+
+        return output_dict
+
+    def generate_token_grad(
+        self,
+        prompt: str,
+        image: Optional[t.Tensor] = None,
+        use_cache: Optional[bool] = False,
+        past_key_values=None,
+        past_output: Optional[str] = None,
+        **kwargs,
+    ):
+        """Performs a single forward pass through the model for token generation or gradient analysis.
+
+        This is a lower-level method that performs a single forward pass, primarily used for:
+        1. Gradient-based analysis or attacks
+        2. As a building block for manual autoregressive generation
+
+        Args:
+            prompt (str): Text prompt to process
+            image (t.Tensor, optional): Image tensor to analyze
+            use_cache (bool, optional): Whether to use key/value caching
+            past_key_values (t.Tensor, optional): Past key values for the model's attention mechanism
+            past_output (str, optional): Previous generation output for continuing sequences
+            **kwargs: Additional arguments passed to the generation function
+
+        Returns:
+            ModelOutput: Output from model's forward pass including logits and hidden states
+        """
+        inputs = self.prepare_inputs_grad(prompt, image, past_output)
+        output = self.model.forward(
+            **inputs,
+            use_cache=use_cache,
+            past_key_values=past_key_values,
+            return_dict=True,
+            **kwargs,
+        )
+
+        return output
+
+    def generate_autoregressive_with_pil(
+        self,
+        prompt: str,
+        image: Image.Image,
+        max_new_tokens: int,
+        no_eos_token: Optional[bool] = False,
+        **kwargs,
+    ):
+        """Generates text output based on an image and text prompt based on the default QwenVL pre-processing steps. The input should be a PIL Image.
+
+        Args:
+            prompt (str): The text prompt to guide generation
+            image (Image.Image): PIL image to analyze
+            max_new_tokens (int): Maximum number of tokens to generate
+            no_eos_token (bool, optional): If True, prevents early stopping at EOS token
+
+        Returns:
+            tuple: (model_outputs, completion_text)
+        """
+        assert isinstance(image, Image.Image), "Image must be a PIL image"
+
+        # NORMAL QWENVL PIPELINE
+        buffered = BytesIO()
+        # Important that this is PNG or another lossless compression type!
+        # I originally used JPEG, but this rescaled all images to the [0, 255]
+        # range after loading
+        image.save(buffered, format="PNG")
+        image_str = base64.b64encode(buffered.getvalue()).decode()
+        image_uri = f"data:image/PNG;base64,{image_str}"
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": image_uri,
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+
+        # Preparation for inference
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+        image_inputs, video_inputs = self.process_vision_info(messages)
+
+        prepare_inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        ).to(DEVICE)
+
+        # training a single token attack might cause the second generated token
+        # to be EoS. So we add an option to generate tokens beyond that.
+        if no_eos_token:
+            stopping_criterion = None
+        else:
+            stopping_criterion = self.tokenizer.eos_token_id
+
+        outputs = self.model.generate(
+            **prepare_inputs,
+            bos_token_id=self.tokenizer.bos_token_id,
+            eos_token_id=stopping_criterion,
+            max_new_tokens=max_new_tokens,
+            # past_key_values=None, ???
+            output_hidden_states=False,
+            output_attentions=False,
+            return_dict_in_generate=True,
+            **kwargs,
+        )
+
+        completion = self.tokenizer.decode(
+            outputs.sequences[0].cpu().tolist(), skip_special_tokens=True
+        )
+        return outputs, completion
+
+    def generate_autoregressive(
+        self,
+        prompt: str,
+        image: t.Tensor,
+        max_new_tokens: int,
+        no_eos_token: Optional[bool] = False,
+        **kwargs,
+    ):
+        """Generates text output based on an image and text prompt using the custom implementation of the pre-processing steps. The input should be a torch.Tensor.
+
+        Args:
+            prompt (str): The text prompt to guide generation
+            image (t.Tensor): Tensor image to analyze
+            max_new_tokens (int): Maximum number of tokens to generate
+            no_eos_token (bool, optional): If True, prevents early stopping at EOS token
+
+        Returns:
+            tuple: (model_outputs, completion_text)
+        """
+        assert isinstance(image, t.Tensor), "Image must be a torch.Tensor"
+
+        # OUR OWN IMPLEMENTATION
+        inputs = self.prepare_inputs_grad(prompt, image)
+
+        # training a single token attack might cause the second generated token
+        # to be EoS. So we add an option to generate tokens beyond that.
+        if no_eos_token:
+            stopping_criterion = None
+        else:
+            stopping_criterion = self.tokenizer.eos_token_id
+
+        outputs = self.model.generate(
+            **inputs,
+            pad_token_id=self.tokenizer.eos_token_id,
+            bos_token_id=self.tokenizer.bos_token_id,
+            eos_token_id=stopping_criterion,
+            max_new_tokens=max_new_tokens,
+            # past_key_values=None, ???
+            output_hidden_states=False,
+            output_attentions=False,
+            return_dict_in_generate=True,
+            **kwargs,
+        )
+
+        completion = self.tokenizer.decode(
+            outputs.sequences[0].cpu().tolist(), skip_special_tokens=True
+        )
+        return outputs, completion
