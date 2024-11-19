@@ -2,6 +2,7 @@ import os
 import torch as t
 from transformers import AutoModelForCausalLM
 from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from transformers import BitsAndBytesConfig
 import subprocess
 from config import PATH_TO_REPOS, DEVICE
@@ -57,7 +58,7 @@ def load_model(model_name):
     Loads and configures a specified vision-language model and its processor.
 
     Args:
-        model_name (str): The name of the model to load. Must be either "DeepSeek-VL" or "LLaVa".
+        model_name (str): The name of the model to load. Must be either "DeepSeek-VL", "LLaVa", or "QwenVL".
 
     Returns:
         tuple: A tuple containing:
@@ -70,6 +71,7 @@ def load_model(model_name):
     Note:
         - For DeepSeek-VL: Uses bfloat16 dtype
         - For LLaVa: Uses 4-bit quantization with float16 dtype
+        - For QwenVL: Uses bfloat16 dtype and flash attention 2
     """
     # specify the path to the model
     if model_name == "DeepSeek-VL":
@@ -98,5 +100,24 @@ def load_model(model_name):
         )
         # model already set to t.float
         processor = LlavaNextProcessor.from_pretrained(model_path)
+
+    elif model_name == "QwenVL":
+        model_path = "Qwen/Qwen2-VL-7B-Instruct-GPTQ-Int4"
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
+            model_path,
+            torch_dtype=t.bfloat16,
+            attn_implementation="flash_attention_2",
+            device_map="auto",
+        )
+
+        # The default range for the number of visual tokens per image in the model is 4-16384. You can set min_pixels and max_pixels according to your needs, such as a token count range of 256-1280, to balance speed and memory usage.
+        min_pixels = 4 * 28 * 28
+        max_pixels = 1280 * 28 * 28
+        processor = AutoProcessor.from_pretrained(
+            model_path, min_pixels=min_pixels, max_pixels=max_pixels
+        )
+
+    else:
+        raise ValueError(f"Model {model_name} not supported")
 
     return model, processor

@@ -3,10 +3,15 @@ import torch as t
 from utils import DotDict
 
 DEVICE = t.device("cuda" if t.cuda.is_available() else "cpu")
-PATH_TO_REPOS = os.path.split(os.getcwd())[0] # path to the directory containing the git repositories
-PATH_TO_DATASETS = os.path.join(os.getcwd(), 'data_storage', 'datasets')
-PATH_TO_TENSORS = os.path.join(os.getcwd(), 'data_storage', 'tensors')
-# Allowed models: 'DeepSeek-VL', 'LLaVa'
+PATH_TO_REPOS = os.path.split(os.getcwd())[
+    0
+]  # path to the directory containing the git repositories
+PATH_TO_DATASETS = os.path.join(os.getcwd(), "data_storage", "datasets")
+PATH_TO_TENSORS = os.path.join(os.getcwd(), "data_storage", "tensors")
+
+"""
+Allowed models: 'DeepSeek-VL', 'LLaVa', 'QwenVL'
+"""
 MODEL = "LLaVa"
 
 WANDB_PROJECT = "pivotal_adv_attacks"
