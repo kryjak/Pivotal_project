@@ -14,3 +14,7 @@ timm
 bitsandbytes
 sentencepiece
 accelerate
+qwen-vl-utils
+optimum
+auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu121/
+flash_attn
